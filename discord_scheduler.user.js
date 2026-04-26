@@ -1029,7 +1029,7 @@
   const CURRENT_VERSION = '4.2';
   const GITHUB_USER     = 'howhowdy2';
   const GITHUB_REPO     = 'Discord-';
-  const GITHUB_FILE     = 'discord_scheduler.user.js';
+  const GITHUB_FILE     = 'discord_scheduler_v4.user.js'; // 更新後改為 v5
   const GITHUB_URL      = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}`;
   const RAW_URL         = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/${GITHUB_FILE}`;
   const AVATAR_URL      = `https://github.com/${GITHUB_USER}.png`;
