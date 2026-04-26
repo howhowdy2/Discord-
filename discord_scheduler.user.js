@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discord 定時指令
 // @namespace    http://tampermonkey.net/
-// @version      5.1
+// @version      5.2
 // @description  定時指令 / 連續指令 / 元素偵測 三合一面板
 // @author       howhowdy2
 // @match        https://discord.com/*
@@ -45,33 +45,90 @@
     }));
   }
 
-  function sendMessage(command, mode, cb) {
-    const editor = document.querySelector('[data-slate-editor="true"]');
-    if (!editor) { console.warn('[定時指令] 找不到輸入框'); if (cb) cb(false); return false; }
+  // 偵測補全選單，timeout ms 內找到回傳 true，否則 false
+  function waitForAutocomplete(timeout, cb) {
+    const start = Date.now();
+    const check = setInterval(() => {
+      const menu =
+        document.querySelector('[data-list-id="channel-autocomplete"]') ||
+        document.querySelector('[id*="autocomplete"]') ||
+        document.querySelector('[class*="autocomplete-"]') ||
+        document.querySelector('[role="listbox"]');
+      if (menu) { clearInterval(check); cb(true); return; }
+      if (Date.now() - start > timeout) { clearInterval(check); cb(false); }
+    }, 50);
+  }
 
+  // 清空輸入框（相容 React contenteditable）
+  function clearEditor(editor) {
     editor.focus();
+    // 嘗試 React 原生方式清空
+    const fiberKey = Object.keys(editor).find(
+      k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance')
+    );
+    if (fiberKey) {
+      // 送出空字串 input event 讓 React 清空
+      editor.dispatchEvent(new InputEvent('beforeinput', {
+        inputType: 'deleteContentBackward', bubbles: true, cancelable: true
+      }));
+    }
     document.execCommand('selectAll', false, null);
     document.execCommand('delete', false, null);
+  }
+
+  // 注入文字（優先 paste，fallback insertText）
+  function injectText(editor, text) {
+    const fiberKey = Object.keys(editor).find(
+      k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance')
+    );
+    if (fiberKey) {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', text);
+      editor.dispatchEvent(new ClipboardEvent('paste', {
+        clipboardData: dt, bubbles: true, cancelable: true
+      }));
+    } else {
+      document.execCommand('insertText', false, text);
+    }
+  }
+
+  function sendMessage(command, mode, cb) {
+    const editor = document.querySelector('[data-slate-editor="true"]');
+    if (!editor) {
+      console.warn('[定時指令] 找不到輸入框，請先點選一個頻道');
+      if (cb) cb(false);
+      return false;
+    }
+
+    // Step 1：清空
+    clearEditor(editor);
 
     setTimeout(() => {
-      // 注入文字
-      const fiberKey = Object.keys(editor).find(
-        k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance')
-      );
-      if (fiberKey) {
-        const dt = new DataTransfer();
-        dt.setData('text/plain', command);
-        editor.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
-      } else {
-        document.execCommand('insertText', false, command);
-      }
+      // Step 2：注入文字
+      injectText(editor, command);
 
       if (mode === 'bot') {
-        setTimeout(() => { pressEnter(editor); setTimeout(() => { pressEnter(editor); if (cb) cb(true); }, 300); }, 150);
+        // Step 3a（Bot 指令）：
+        // 等補全選單出現 → Enter 確認選項 → 等 300ms → Enter 送出
+        // 若 2 秒內選單沒出現（例如只有一個完全符合的指令），直接連按兩次
+        waitForAutocomplete(2000, (found) => {
+          const delay = found ? 80 : 0;
+          setTimeout(() => {
+            pressEnter(editor);           // 第一次 Enter：確認補全 / 選擇指令
+            setTimeout(() => {
+              pressEnter(editor);         // 第二次 Enter：送出訊息
+              if (cb) cb(true);
+            }, 350);
+          }, delay);
+        });
       } else {
-        setTimeout(() => { pressEnter(editor); if (cb) cb(true); }, 150);
+        // Step 3b（一般對話）：直接 Enter 送出
+        setTimeout(() => {
+          pressEnter(editor);
+          if (cb) cb(true);
+        }, 100);
       }
-    }, 50);
+    }, 80); // 給 React 80ms 處理清空後的狀態
 
     return true;
   }
@@ -1189,7 +1246,7 @@
   // ═══════════════════════════════════════════════
   //  版本控制器
   // ═══════════════════════════════════════════════
-  const CURRENT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '4.2';
+  const CURRENT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '0.0';
   const GITHUB_USER     = 'howhowdy2';
   const GITHUB_REPO     = 'Discord-';
   const GITHUB_FILE     = 'discord_scheduler.user.js';
