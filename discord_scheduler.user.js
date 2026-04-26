@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discord 定時指令
 // @namespace    http://tampermonkey.net/
-// @version      5.3
+// @version      5.4
 // @description  定時指令 / 連續指令 / 元素偵測 三合一面板
 // @author       howhowdy2
 // @match        https://discord.com/*
@@ -100,35 +100,42 @@
       return false;
     }
 
-    // Step 1：清空
-    clearEditor(editor);
+    function doSend() {
+      // Step 1：清空
+      clearEditor(editor);
 
-    setTimeout(() => {
-      // Step 2：注入文字
-      injectText(editor, command);
+      setTimeout(() => {
+        // Step 2：注入文字
+        injectText(editor, command);
 
-      if (mode === 'bot') {
-        // Step 3a（Bot 指令）：
-        // 等補全選單出現 → Enter 確認選項 → 等 300ms → Enter 送出
-        // 若 2 秒內選單沒出現（例如只有一個完全符合的指令），直接連按兩次
-        waitForAutocomplete(2000, (found) => {
-          const delay = found ? 80 : 0;
-          setTimeout(() => {
-            pressEnter(editor);           // 第一次 Enter：確認補全 / 選擇指令
+        if (mode === 'bot') {
+          waitForAutocomplete(2000, (found) => {
+            const delay = found ? 80 : 0;
             setTimeout(() => {
-              pressEnter(editor);         // 第二次 Enter：送出訊息
-              if (cb) cb(true);
-            }, 350);
-          }, delay);
-        });
-      } else {
-        // Step 3b（一般對話）：直接 Enter 送出
-        setTimeout(() => {
-          pressEnter(editor);
-          if (cb) cb(true);
-        }, 100);
-      }
-    }, 80); // 給 React 80ms 處理清空後的狀態
+              pressEnter(editor);
+              setTimeout(() => {
+                pressEnter(editor);
+                if (cb) cb(true);
+              }, 350);
+            }, delay);
+          });
+        } else {
+          setTimeout(() => {
+            pressEnter(editor);
+            if (cb) cb(true);
+          }, 100);
+        }
+      }, 80);
+    }
+
+    // 若視窗在背景，先呼叫 window.focus() 把視窗拉到前景
+    // 等待 300ms 讓 focus 生效後再執行注入
+    if (document.hidden || !document.hasFocus()) {
+      window.focus();
+      setTimeout(doSend, 300);
+    } else {
+      doSend();
+    }
 
     return true;
   }
@@ -156,29 +163,28 @@
   }
 
   function startTask(task) {
-    if (task.timerId) clearInterval(task.timerId);
+    if (task.timerId) { clearTimeout(task.timerId); clearInterval(task.timerId); }
 
-    if (task.scheduleType === 'clock') {
-      task.nextRun = nextClockTime(task.clockTime);
-      task.timerId = setInterval(() => {
-        if (!task.enabled) return;
-        if (Date.now() >= task.nextRun) {
+    if (task.scheduleType === 'clock' || task.scheduleType === 'hour') {
+      // 精準時鐘模式：計算到下次觸發的精確毫秒數，用 setTimeout 一次性觸發
+      // 觸發後再遞迴設下一次，完全不依賴 setInterval 累積誤差
+      function scheduleNext() {
+        const nextRun = task.scheduleType === 'hour'
+          ? nextHourTime()
+          : nextClockTime(task.clockTime);
+        task.nextRun = nextRun;
+
+        const msUntilNext = Math.max(0, nextRun - Date.now());
+        task.timerId = setTimeout(() => {
+          if (!task.enabled) return;
           sendMessage(task.command, task.mode, () => {});
-          task.nextRun = nextClockTime(task.clockTime);
-        }
-      }, 1000);
-    } else if (task.scheduleType === 'hour') {
-      // 每小時整點 :00 觸發
-      task.nextRun = nextHourTime();
-      task.timerId = setInterval(() => {
-        if (!task.enabled) return;
-        if (Date.now() >= task.nextRun) {
-          sendMessage(task.command, task.mode, () => {});
-          task.nextRun = nextHourTime();
-        }
-      }, 1000);
+          scheduleNext(); // 觸發後立刻安排下一次
+        }, msUntilNext);
+      }
+      scheduleNext();
+
     } else {
-      // 原本的 interval 模式
+      // interval 模式：維持原本 setInterval
       task.nextRun = Date.now() + task.intervalMs;
       task.timerId = setInterval(() => {
         if (!task.enabled) return;
@@ -188,7 +194,7 @@
     }
   }
   function stopTask(task) {
-    if (task.timerId) { clearInterval(task.timerId); task.timerId = null; }
+    if (task.timerId) { clearTimeout(task.timerId); clearInterval(task.timerId); task.timerId = null; }
     task.nextRun = null;
   }
   function startAllTasks() { tasks.forEach(t => { if (t.enabled) startTask(t); }); }
@@ -210,17 +216,20 @@
   }
 
   function startSeqGroup(group) {
-    if (group.timerId) clearInterval(group.timerId);
+    if (group.timerId) { clearTimeout(group.timerId); clearInterval(group.timerId); }
 
     if (group.scheduleType === 'clock') {
-      group.nextRun = nextClockTime(group.clockTime);
-      group.timerId = setInterval(() => {
-        if (!group.enabled) return;
-        if (Date.now() >= group.nextRun) {
+      function scheduleNext() {
+        const nextRun = nextClockTime(group.clockTime);
+        group.nextRun = nextRun;
+        const msUntilNext = Math.max(0, nextRun - Date.now());
+        group.timerId = setTimeout(() => {
+          if (!group.enabled) return;
           runSequence(group, () => {});
-          group.nextRun = nextClockTime(group.clockTime);
-        }
-      }, 1000);
+          scheduleNext();
+        }, msUntilNext);
+      }
+      scheduleNext();
     } else {
       group.nextRun = Date.now() + group.intervalMs;
       group.timerId = setInterval(() => {
@@ -231,7 +240,7 @@
     }
   }
   function stopSeqGroup(group) {
-    if (group.timerId) { clearInterval(group.timerId); group.timerId = null; }
+    if (group.timerId) { clearTimeout(group.timerId); clearInterval(group.timerId); group.timerId = null; }
     group.nextRun = null;
   }
   function startAllSeqGroups() { seqGroups.forEach(g => { if (g.enabled) startSeqGroup(g); }); }
