@@ -1,2 +1,2 @@
-# Discord-
+# Discord-Script
 自訂時間輸入指令腳本 支持bot指令 與一般文字輸入
