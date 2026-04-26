@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discord 定時指令
 // @namespace    http://tampermonkey.net/
-// @version      5.2
+// @version      4.2
 // @description  定時指令 / 連續指令 / 元素偵測 三合一面板
 // @author       howhowdy2
 // @match        https://discord.com/*
@@ -656,6 +656,22 @@
       timeRow.style.display='flex'; clockRow.style.display='none';
     });
 
+    // 供外部（米米預設）使用的新增函式，走完全相同的路徑
+    page._addTask = ({ label, command, mode, scheduleType, clockTime, intervalMs }) => {
+      const task = {
+        id: 'mimi_' + label,
+        label, command, mode, scheduleType,
+        intervalMs: intervalMs || 86400000,
+        clockTime: clockTime || '',
+        enabled: true,
+        nextRun: scheduleType === 'clock' ? nextClockTime(clockTime)
+               : scheduleType === 'hour'  ? nextHourTime()
+               : Date.now() + intervalMs,
+        timerId: null
+      };
+      tasks.push(task); saveTasks(); startTask(task); renderPage1List();
+    };
+
     form.append(labelInp, cmdInp, modeWrap, schedWrap, timeRow, clockRow, addBtn);
 
     // 列表
@@ -1185,19 +1201,30 @@
 
   function applyMimiTasks(enabled) {
     if (enabled) {
+      // 找到 Page1 的 _addTask 函式（與手動新增完全相同路徑）
+      const page1 = document.querySelector('[data-page="1"]');
       MIMI_TASKS.forEach(def => {
-        const exists = tasks.find(t => t.label === def.label && t.command === def.command);
+        const exists = tasks.find(t => t.id === 'mimi_' + def.label);
         if (exists) return;
-        const task = {
-          ...def,
-          id: 'mimi_' + def.label,
-          enabled: true,
-          nextRun: def.scheduleType === 'clock' ? nextClockTime(def.clockTime) : def.scheduleType === 'hour' ? nextHourTime() : Date.now() + def.intervalMs,
-          timerId: null
-        };
-        tasks.push(task);
-        startTask(task);
+        if (page1 && page1._addTask) {
+          page1._addTask(def);
+        } else {
+          // fallback：面板尚未建立時直接 push（啟動時用）
+          const task = {
+            ...def,
+            id: 'mimi_' + def.label,
+            enabled: true,
+            nextRun: def.scheduleType === 'clock' ? nextClockTime(def.clockTime)
+                   : def.scheduleType === 'hour'  ? nextHourTime()
+                   : Date.now() + def.intervalMs,
+            timerId: null
+          };
+          tasks.push(task);
+          saveTasks();
+          startTask(task);
+        }
       });
+      renderPage1List();
     } else {
       MIMI_TASKS.forEach(def => {
         const idx = tasks.findIndex(t => t.id === 'mimi_' + def.label);
@@ -1205,9 +1232,9 @@
         stopTask(tasks[idx]);
         tasks.splice(idx, 1);
       });
+      saveTasks();
+      renderPage1List();
     }
-    saveTasks();
-    renderPage1List();
   }
 
   function createMimiToggle() {
@@ -1246,7 +1273,7 @@
   // ═══════════════════════════════════════════════
   //  版本控制器
   // ═══════════════════════════════════════════════
-  const CURRENT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '0.0';
+  const CURRENT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '4.2';
   const GITHUB_USER     = 'howhowdy2';
   const GITHUB_REPO     = 'Discord-';
   const GITHUB_FILE     = 'discord_scheduler.user.js';
@@ -1305,20 +1332,30 @@
 
     widget.addEventListener('click', e => e.stopPropagation());
 
-    GM_xmlhttpRequest({
-      method: 'GET',
-      url: RAW_URL + '?t=' + Date.now(),
-      onload(res) {
-        const match = res.responseText.match(/@version\s+([\d.]+)/);
-        if (!match) return;
-        const remoteVer = match[1];
-        const hasUpdate = remoteVer !== CURRENT_VERSION;
-        badge.className = `__sch_ver_badge ${hasUpdate ? 'update' : 'latest'}`;
-        badge.textContent = hasUpdate ? `↑ v${remoteVer} 可更新` : '✓ 最新版';
-        if (hasUpdate) widget.title = `有新版本 v${remoteVer}，點擊前往 GitHub 更新`;
-      },
-      onerror() { badge.style.display = 'none'; }
-    });
+    function checkUpdate() {
+      badge.className = '__sch_ver_badge';
+      badge.textContent = '檢查中...';
+      GM_xmlhttpRequest({
+        method: 'GET',
+        url: RAW_URL + '?t=' + Date.now(),
+        onload(res) {
+          const match = res.responseText.match(/@version\s+([\d.]+)/);
+          if (!match) return;
+          const remoteVer = match[1];
+          const hasUpdate = remoteVer !== CURRENT_VERSION;
+          badge.className = `__sch_ver_badge ${hasUpdate ? 'update' : 'latest'}`;
+          badge.textContent = hasUpdate ? `↑ v${remoteVer} 可更新` : '✓ 最新版';
+          if (hasUpdate) widget.title = `有新版本 v${remoteVer}，點擊前往 GitHub 更新`;
+        },
+        onerror() { badge.className = '__sch_ver_badge'; badge.textContent = '無法連線'; }
+      });
+    }
+
+    // 啟動時先檢查一次
+    checkUpdate();
+
+    // 暴露給 createPanel 使用（點開面板時重新檢查）
+    widget._checkUpdate = checkUpdate;
 
     return widget;
   }
@@ -1424,8 +1461,14 @@
     // 開關面板
     mainBtn.addEventListener('click', e => {
       e.stopPropagation();
+      const opening = !panel.classList.contains('open');
       panel.classList.toggle('open');
       quickPanel.classList.remove('open');
+      // 每次開啟時重新檢查版本
+      if (opening) {
+        const ver = document.getElementById('__sch_ver__');
+        if (ver && ver._checkUpdate) ver._checkUpdate();
+      }
     });
 
     // 點外部關閉（mousedown 防拖曳誤關）
