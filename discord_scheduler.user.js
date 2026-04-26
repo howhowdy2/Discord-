@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discord 定時指令
 // @namespace    http://tampermonkey.net/
-// @version      4.2
+// @version      5.3
 // @description  定時指令 / 連續指令 / 元素偵測 三合一面板
 // @author       howhowdy2
 // @match        https://discord.com/*
