@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discord 定時指令
 // @namespace    http://tampermonkey.net/
-// @version      4.2
+// @version      5.1
 // @description  定時指令 / 連續指令 / 元素偵測 三合一面板
 // @author       howhowdy2
 // @match        https://discord.com/*
@@ -86,21 +86,38 @@
     const now = new Date();
     const target = new Date(now);
     target.setHours(h, m, 0, 0);
-    if (target <= now) target.setDate(target.getDate() + 1); // 已過今天，改明天
+    if (target <= now) target.setDate(target.getDate() + 1);
     return target.getTime();
+  }
+
+  // 下一個整點（每小時 :00）
+  function nextHourTime() {
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(now.getHours() + 1, 0, 0, 0);
+    return next.getTime();
   }
 
   function startTask(task) {
     if (task.timerId) clearInterval(task.timerId);
 
     if (task.scheduleType === 'clock') {
-      // 每秒檢查是否到達指定時間
       task.nextRun = nextClockTime(task.clockTime);
       task.timerId = setInterval(() => {
         if (!task.enabled) return;
         if (Date.now() >= task.nextRun) {
           sendMessage(task.command, task.mode, () => {});
-          task.nextRun = nextClockTime(task.clockTime); // 設為明天同一時間
+          task.nextRun = nextClockTime(task.clockTime);
+        }
+      }, 1000);
+    } else if (task.scheduleType === 'hour') {
+      // 每小時整點 :00 觸發
+      task.nextRun = nextHourTime();
+      task.timerId = setInterval(() => {
+        if (!task.enabled) return;
+        if (Date.now() >= task.nextRun) {
+          sendMessage(task.command, task.mode, () => {});
+          task.nextRun = nextHourTime();
         }
       }, 1000);
     } else {
@@ -176,7 +193,6 @@
     s.textContent = `
       /* ── 主按鈕 ── */
       #${BTN_ID} {
-        position:fixed; top:8px; right:56px; z-index:9999;
         background:#5865F2; color:#fff; border:none;
         border-radius:6px; padding:5px 12px;
         font-size:13px; font-weight:600; cursor:pointer;
@@ -184,6 +200,14 @@
         transition:background .15s;
       }
       #${BTN_ID}:hover { background:#4752C4; }
+      .__sch_quick_mainbtn {
+        background:#4e3fa0; color:#fff; border:none;
+        border-radius:6px; padding:5px 12px;
+        font-size:13px; font-weight:600; cursor:pointer;
+        font-family:'gg sans','Noto Sans',sans-serif;
+        transition:background .15s;
+      }
+      .__sch_quick_mainbtn:hover { background:#3d3180; }
 
       /* ── 面板 ── */
       #${PANEL_ID} {
@@ -382,6 +406,68 @@
       }
       .__sch_ver_badge.update { background:#f59e0b; color:#1c1917; display:inline-block; }
       .__sch_ver_badge.latest { background:#166534; color:#bbf7d0; display:inline-block; }
+
+      /* ── Footer 左右布局 ── */
+      .__sch_footer {
+        border-top:1px solid #1e1f22;
+        padding:7px 12px;
+        flex-shrink:0;
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+      }
+
+      /* ── 米米預設腳本 toggle ── */
+      .__sch_mimi_wrap { display:flex; align-items:center; gap:6px; }
+      .__sch_mimi_label { font-size:10px; color:#6d6f78; white-space:nowrap; }
+      .__sch_toggle_track {
+        width:30px; height:16px; border-radius:8px;
+        background:#3f4248; cursor:pointer;
+        position:relative; transition:background .2s; flex-shrink:0;
+        border:none; padding:0;
+      }
+      .__sch_toggle_track.on { background:#5865F2; }
+      .__sch_toggle_thumb {
+        position:absolute; top:2px; left:2px;
+        width:12px; height:12px; border-radius:50%;
+        background:#fff; transition:left .2s;
+        pointer-events:none;
+      }
+      .__sch_toggle_track.on .__sch_toggle_thumb { left:16px; }
+
+      /* ── 米米快捷鍵面板 ── */
+      #__sch_quick_panel__ {
+        display:none; position:fixed; top:44px; right:180px;
+        z-index:9998; width:200px;
+        background:#2b2d31; border:1px solid #1e1f22;
+        border-radius:10px; box-shadow:0 8px 32px rgba(0,0,0,.55);
+        font-family:'gg sans','Noto Sans',sans-serif;
+        flex-direction:column; overflow:hidden;
+        padding:8px;
+        gap:5px;
+      }
+      #__sch_quick_panel__.open { display:flex; }
+      .__sch_quick_title {
+        font-size:11px; font-weight:700; color:#949ba4;
+        padding:4px 4px 6px; letter-spacing:.4px;
+        border-bottom:1px solid #1e1f22; margin-bottom:2px;
+      }
+      .__sch_quick_btn {
+        background:#1e1f22; border:1px solid #3f4248;
+        border-radius:6px; color:#dbdee1;
+        padding:8px 10px; font-size:12px; font-weight:600;
+        cursor:pointer; text-align:left; font-family:inherit;
+        transition:background .15s, border-color .15s;
+        display:flex; flex-direction:column; gap:2px;
+      }
+      .__sch_quick_btn:hover { background:#3f4248; border-color:#5865F2; }
+      .__sch_quick_btn span { font-size:10px; color:#555861; font-weight:400; font-family:'Consolas',monospace; }
+
+      /* ── 頂部主按鈕群 ── */
+      #__sch_topbar__ {
+        position:fixed; top:8px; right:56px; z-index:9999;
+        display:flex; gap:6px; align-items:center;
+      }
     `;
     document.head.appendChild(s);
   }
@@ -571,7 +657,7 @@
       const meta = document.createElement('div'); meta.className='__sch_card_meta';
       const badge = document.createElement('span'); badge.className=`__sch_badge ${t.mode==='bot'?'bot':'chat'}`; badge.textContent=t.mode==='bot'?'BOT':'對話';
       const ivl   = document.createElement('span');
-      ivl.textContent = t.scheduleType==='clock' ? `每天 ${t.clockTime}` : `每 ${fmtMs(t.intervalMs)}`;
+      ivl.textContent = t.scheduleType==='clock' ? `每天 ${t.clockTime}` : t.scheduleType==='hour' ? '每小時整點' : `每 ${fmtMs(t.intervalMs)}`;
       const cd    = document.createElement('span'); cd.className=`__sch_countdown${t.enabled?'':' off'}`; cd.dataset.nextrun='1'; cd.textContent=t.enabled?fmtCountdown(t.nextRun, t.scheduleType==='clock'?t.clockTime:''):'已停止';
       meta.append(badge, ivl, cd);
 
@@ -1024,12 +1110,89 @@
   }
 
   // ═══════════════════════════════════════════════
+  //  米米預設腳本
+  // ═══════════════════════════════════════════════
+  const MIMI_TASKS = [
+    { label: '每日獎勵', command: '/daily',  mode: 'bot', scheduleType: 'clock',    clockTime: '00:00', intervalMs: 86400000 },
+    { label: '定時獎勵', command: '/hourly', mode: 'bot', scheduleType: 'hour',     clockTime: '',      intervalMs: 3600000  },
+  ];
+  const MIMI_KEY = 'sch_mimi_enabled';
+
+  function isMimiEnabled() {
+    return GM_getValue(MIMI_KEY, 'false') === 'true';
+  }
+
+  function setMimiEnabled(val) {
+    GM_setValue(MIMI_KEY, val ? 'true' : 'false');
+  }
+
+  function applyMimiTasks(enabled) {
+    if (enabled) {
+      MIMI_TASKS.forEach(def => {
+        const exists = tasks.find(t => t.label === def.label && t.command === def.command);
+        if (exists) return;
+        const task = {
+          ...def,
+          id: 'mimi_' + def.label,
+          enabled: true,
+          nextRun: def.scheduleType === 'clock' ? nextClockTime(def.clockTime) : def.scheduleType === 'hour' ? nextHourTime() : Date.now() + def.intervalMs,
+          timerId: null
+        };
+        tasks.push(task);
+        startTask(task);
+      });
+    } else {
+      MIMI_TASKS.forEach(def => {
+        const idx = tasks.findIndex(t => t.id === 'mimi_' + def.label);
+        if (idx === -1) return;
+        stopTask(tasks[idx]);
+        tasks.splice(idx, 1);
+      });
+    }
+    saveTasks();
+    renderPage1List();
+  }
+
+  function createMimiToggle() {
+    const wrap = document.createElement('div');
+    wrap.className = '__sch_mimi_wrap';
+
+    const label = document.createElement('span');
+    label.className = '__sch_mimi_label';
+    label.textContent = '米米預設';
+
+    const track = document.createElement('button');
+    track.className = `__sch_toggle_track${isMimiEnabled() ? ' on' : ''}`;
+    const thumb = document.createElement('div');
+    thumb.className = '__sch_toggle_thumb';
+    track.appendChild(thumb);
+
+    track.addEventListener('click', e => {
+      e.stopPropagation();
+      const nowOn = !track.classList.contains('on');
+      track.classList.toggle('on', nowOn);
+      setMimiEnabled(nowOn);
+      applyMimiTasks(nowOn);
+      // 同步顯示/隱藏米米快捷鍵按鈕
+      const qb = document.querySelector('.__sch_quick_mainbtn');
+      if (qb) qb.style.display = nowOn ? 'inline-block' : 'none';
+      if (!nowOn) {
+        const qp = document.getElementById('__sch_quick_panel__');
+        if (qp) qp.classList.remove('open');
+      }
+    });
+
+    wrap.append(label, track);
+    return wrap;
+  }
+
+  // ═══════════════════════════════════════════════
   //  版本控制器
   // ═══════════════════════════════════════════════
-  const CURRENT_VERSION = '4.2';
+  const CURRENT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '4.2';
   const GITHUB_USER     = 'howhowdy2';
   const GITHUB_REPO     = 'Discord-';
-  const GITHUB_FILE     = 'discord_scheduler_v4.user.js'; // 更新後改為 v5
+  const GITHUB_FILE     = 'discord_scheduler.user.js';
   const GITHUB_URL      = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}`;
   const RAW_URL         = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/${GITHUB_FILE}`;
   const AVATAR_URL      = `https://github.com/${GITHUB_USER}.png`;
@@ -1042,12 +1205,12 @@
     widget.rel = 'noopener';
     widget.title = '點擊前往 GitHub';
 
-    // 先用文字佔位頭像（繞過 Discord CSP）
+    // 頭像：先顯示文字佔位，用 GM_xmlhttpRequest 抓圖後以 background-image 顯示
+    // （Discord CSP 擋 img src 外部連結，但不擋 CSS background-image data URL）
     const avatarWrap = document.createElement('div');
-    avatarWrap.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#5865F2;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0;';
+    avatarWrap.style.cssText = 'width:22px;height:22px;border-radius:50%;background:#5865F2;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0;background-size:cover;background-position:center;';
     avatarWrap.textContent = GITHUB_USER[0].toUpperCase();
 
-    // 用 GM_xmlhttpRequest blob 轉 base64，繞過 img src CSP
     GM_xmlhttpRequest({
       method: 'GET',
       url: AVATAR_URL + '?size=40',
@@ -1055,14 +1218,14 @@
       onload(res) {
         const reader = new FileReader();
         reader.onload = () => {
-          const img = document.createElement('img');
-          img.src = reader.result;
-          img.alt = GITHUB_USER;
-          img.style.cssText = 'width:20px;height:20px;border-radius:50%;object-fit:cover;flex-shrink:0;';
-          avatarWrap.replaceWith(img);
+          // 用 CSS background-image 而非 img src，繞過 Discord img-src CSP
+          avatarWrap.textContent = '';
+          avatarWrap.style.backgroundImage = `url(${reader.result})`;
+          avatarWrap.style.background = `url(${reader.result}) center/cover no-repeat`;
         };
         reader.readAsDataURL(res.response);
-      }
+      },
+      onerror() {} // 失敗就維持文字頭像
     });
 
     const info = document.createElement('div');
@@ -1107,9 +1270,54 @@
   //  建立主面板
   // ═══════════════════════════════════════════════
   function createPanel() {
+    // 頂部按鈕群
+    const topbar = document.createElement('div');
+    topbar.id = '__sch_topbar__';
+
     const mainBtn = document.createElement('button');
     mainBtn.id = BTN_ID; mainBtn.textContent = '⏱ 定時指令';
-    document.body.appendChild(mainBtn);
+
+    const quickBtn = document.createElement('button');
+    quickBtn.className = '__sch_quick_mainbtn';
+    quickBtn.textContent = '🐱 米米快捷鍵';
+
+    // 米米快捷鍵按鈕：只在米米預設開啟時顯示
+    quickBtn.style.display = isMimiEnabled() ? 'inline-block' : 'none';
+    topbar.append(quickBtn, mainBtn);
+    document.body.appendChild(topbar);
+
+    // 米米快捷鍵面板
+    const quickPanel = document.createElement('div');
+    quickPanel.id = '__sch_quick_panel__';
+
+    const quickTitle = document.createElement('div');
+    quickTitle.className = '__sch_quick_title';
+    quickTitle.textContent = '🐱 米米快捷鍵';
+    quickPanel.appendChild(quickTitle);
+
+    const quickCmds = [
+      { label: '帳戶餘額', cmd: '/balance' },
+      { label: '股票資訊', cmd: '/portfolio' },
+      { label: '貓娘狀態', cmd: '/nekomusume status' },
+    ];
+    quickCmds.forEach(({ label, cmd }) => {
+      const btn = document.createElement('button');
+      btn.className = '__sch_quick_btn';
+      btn.innerHTML = `${label}<span>${cmd}</span>`;
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        sendMessage(cmd, 'bot', () => {});
+        quickPanel.classList.remove('open');
+      });
+      quickPanel.appendChild(btn);
+    });
+    document.body.appendChild(quickPanel);
+
+    quickBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      quickPanel.classList.toggle('open');
+      panel.classList.remove('open'); // 關閉另一個
+    });
 
     const panel = document.createElement('div');
     panel.id = PANEL_ID;
@@ -1143,10 +1351,11 @@
     panel.appendChild(tabs);
     pages.forEach(p => panel.appendChild(p));
 
-    // 底部 footer：版本控制器
+    // 底部 footer：左邊版本控制器，右邊米米預設開關
     const footer = document.createElement('div');
     footer.className = '__sch_footer';
     footer.appendChild(createVersionWidget());
+    footer.appendChild(createMimiToggle());
     panel.appendChild(footer);
 
     document.body.appendChild(panel);
@@ -1156,15 +1365,23 @@
     renderPage2List();
 
     // 開關面板
-    mainBtn.addEventListener('click', e => { e.stopPropagation(); panel.classList.toggle('open'); });
+    mainBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      panel.classList.toggle('open');
+      quickPanel.classList.remove('open');
+    });
 
     // 點外部關閉（mousedown 防拖曳誤關）
     let mousedownInPanel = false;
     panel.addEventListener('mousedown', () => { mousedownInPanel = true; });
-    document.addEventListener('mousedown', e => { if (e.target !== mainBtn) mousedownInPanel = false; });
+    quickPanel.addEventListener('mousedown', e => e.stopPropagation());
+    document.addEventListener('mousedown', e => {
+      if (e.target !== mainBtn && e.target !== quickBtn) mousedownInPanel = false;
+    });
     document.addEventListener('click', e => {
-      if (mousedownInPanel || panel.contains(e.target) || e.target === mainBtn) return;
-      panel.classList.remove('open');
+      if (mousedownInPanel) return;
+      if (!panel.contains(e.target) && e.target !== mainBtn) panel.classList.remove('open');
+      if (!quickPanel.contains(e.target) && e.target !== quickBtn) quickPanel.classList.remove('open');
     });
   }
 
@@ -1178,6 +1395,7 @@
       setTimeout(() => {
         injectStyles();
         createPanel();
+        if (isMimiEnabled()) applyMimiTasks(true);
         startAllTasks();
         startAllSeqGroups();
         console.log('[定時指令 v4] 已載入');
